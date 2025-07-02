@@ -51,13 +51,12 @@ graph TD
     end
 
     subgraph "Output to User"
-        P8 --> Stream[Streaming Response <br/> (SSE)] --> Frontend[React Frontend] --> FinalDisplay[Display Exam & Progress];
+        P8 --> Stream["Streaming Response\n(SSE)"] --> Frontend[React Frontend] --> FinalDisplay[Display Exam & Progress];
     end
     
     style UserInputTopic fill:#d4edda,stroke:#155724
     style UserInputFile fill:#d4edda,stroke:#155724
     style Frontend fill:#cce5ff,stroke:#004085
-    style FE fill:#cce5ff,stroke:#004085,stroke-width:2px
 ```
 
 ## Tech Stack
