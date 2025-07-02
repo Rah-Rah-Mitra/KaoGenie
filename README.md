@@ -40,32 +40,24 @@ graph TD
     end
 
     subgraph "Data Ingestion Pipeline"
-        API_Topic --> P1[1. Generate Search Queries];
-        P1 --> P2[2. Web Search & Crawl];
-        P2 --> P3[3. Process URLs & Content];
-        
+        API_Topic --> P1[1. Generate Search Queries] --> P2[2. Web Search & Crawl] --> P3[3. Process URLs & Content];
         API_File --> P4[1. Process Uploaded File];
-
         P3 --> IngestDB[(Ingest into ChromaDB)];
         P4 --> IngestDB;
     end
 
     subgraph "Exam Generation Pipeline"
-        IngestDB --> P5[4. Create Retrievers];
-        P5 --> P6[5. Generate Questions];
-        P6 --> P7[6. Solve Questions in Parallel];
-        P7 --> P8[7. Compile Final Documents];
+        IngestDB --> P5[4. Create Retrievers] --> P6[5. Generate Questions] --> P7[6. Solve Questions in Parallel] --> P8[7. Compile Final Documents];
     end
 
     subgraph "Output to User"
-        P8 --> Stream[Streaming Response (SSE)];
-        Stream --> Frontend[React Frontend];
-        Frontend --> FinalDisplay[Display Exam & Progress];
+        P8 --> Stream[Streaming Response <br/> (SSE)] --> Frontend[React Frontend] --> FinalDisplay[Display Exam & Progress];
     end
     
     style UserInputTopic fill:#d4edda,stroke:#155724
     style UserInputFile fill:#d4edda,stroke:#155724
     style Frontend fill:#cce5ff,stroke:#004085
+    style FE fill:#cce5ff,stroke:#004085,stroke-width:2px
 ```
 
 ## Tech Stack
