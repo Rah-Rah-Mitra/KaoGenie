@@ -258,11 +258,5 @@ The application will be available at **[http://localhost:5173](http://localhost:
 
 This project is licensed under the MIT License. See the [LICENSE.txt](LICENSE.txt) file for details.
 
-You've run into a common issue! While GitHub's Markdown renderer has improved, it can sometimes struggle with more complex or nested Mermaid syntax. The error "unsupported markdown" usually points to a feature that their specific renderer version doesn't handle well, with nested subgraphs being a frequent cause.
-
-The best solution is to simplify the diagram's structure to be more linear, which is universally supported. I have refactored your diagram to be "flatter" while still clearly communicating the two separate workflows that merge into a single pipeline. This version is guaranteed to work on GitHub.
-
-Here is the updated `README.md` with the new, compatible Mermaid diagram.
-
 ---
 
