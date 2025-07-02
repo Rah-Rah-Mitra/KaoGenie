@@ -17,7 +17,7 @@ The integration with **BoB** for organization verification and document approval
 
 #### System Architecture (BoB Integration Pending)
 
-![BoB Integration Pending - System Architecture](assets\system-workflow-diagram.png)
+![BoB Integration Pending - System Architecture](assets/system-workflow-diagram.png)
 *Figure: Current project architecture with BoB integration marked as pending*
 
 ## Key Features
