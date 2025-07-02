@@ -35,41 +35,63 @@ The application is a monorepo consisting of a Python backend and a React fronten
 ```mermaid
 graph TD
     subgraph User Interaction
-        U[User] -- "Interacts with UI" --> FE[React Frontend]
+        U[User]
+        FE[React Frontend]
     end
 
     subgraph "Backend (FastAPI)"
-        FE -- "1. POST /exam/from-topic\n(subject, specs)" --> FT[From Topic Workflow]
-        FE -- "1. POST /exam/from-file\n(file, metadata)" --> FF[From File Workflow]
-
-        subgraph From Topic Workflow
-            FT --> QG["2a. Generate Search Queries"]
-            QG --> WS["3a. Web & Image Search"]
-            WS --> C["4a. Crawl & Discover URLs"]
-            C --> DP["5a. Download & Process Content"]
-            DP --> VSM_T["6a. Ingest into ChromaDB"]
+        subgraph "From Topic Workflow"
+            FT[Topic Workflow]
+            QG["Generate Search Queries"]
+            WS["Web & Image Search"]
+            C["Crawl & Discover URLs"]
+            DP["Download & Process Content"]
+            VSM_T["Ingest Text into ChromaDB"]
         end
 
-        subgraph From File Workflow
-            FF --> UP["2b. Process Uploaded File"]
-            UP --> VSM_F["3b. Ingest into ChromaDB"]
-            VSM_F --> SPG["4b. Generate Question Specs from Content"]
+        subgraph "From File Workflow"
+            FF[File Workflow]
+            UP["Process Uploaded File"]
+            VSM_F["Ingest File into ChromaDB"]
+            SPG["Generate Question Specs"]
         end
         
-        subgraph Exam Generation Pipeline
-            VSM_T --> EGP
-            SPG --> EGP
-            EGP -- "7. Generate Questions" --> QGA[Question Generator Agent]
-            QGA -- "8. Solve in Parallel" --> SOLV[General & Math Solvers]
-            SOLV -- "9. Compile Documents" --> COMP[Exam Compiler Agent]
+        subgraph "Exam Generation Pipeline"
+            EGP[Pipeline Start]
+            QGA[Question Generator Agent]
+            SOLV[General & Math Solvers]
+            COMP[Exam Compiler Agent]
+            FINAL[Final Exam Object]
         end
-        
-        COMP --> FINAL[Final Exam Object]
     end
     
-    FINAL -- "Streaming Updates & Final Result (SSE)" --> FE
-    FE -- "Displays Progress & Final Exam" --> U
+    %% Define Transitions - One per line for compatibility
+    U -- "Interacts with UI" --> FE
+    
+    FE -- "POST /exam/from-topic" --> FT
+    FE -- "POST /exam/from-file" --> FF
 
+    FT --> QG
+    QG --> WS
+    WS --> C
+    C --> DP
+    DP --> VSM_T
+
+    FF --> UP
+    UP --> VSM_F
+    VSM_F --> SPG
+
+    VSM_T --> EGP
+    SPG --> EGP
+    EGP -- "Generate Questions" --> QGA
+    QGA -- "Solve in Parallel" --> SOLV
+    SOLV -- "Compile Documents" --> COMP
+    COMP --> FINAL
+
+    FINAL -- "Streaming Updates (SSE)" --> FE
+    FE -- "Displays Progress & Exam" --> U
+
+    %% Define Styles
     style U fill:#d4edda,stroke:#155724,stroke-width:2px
     style FE fill:#cce5ff,stroke:#004085,stroke-width:2px
 ```
