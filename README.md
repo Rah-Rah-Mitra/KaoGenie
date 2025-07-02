@@ -34,29 +34,44 @@ The application is a monorepo consisting of a Python backend and a React fronten
 
 ```mermaid
 graph TD
-    subgraph "Input Source"
-        UserInputTopic[User provides Topic/Grade] --> API_Topic{POST /exam/from-topic};
-        UserInputFile[User uploads File] --> API_File{POST /exam/from-file};
+    subgraph User Interaction
+        U[User] -- "Interacts with UI" --> FE[React Frontend]
     end
 
-    subgraph "Data Ingestion Pipeline"
-        API_Topic --> P1[1. Generate Search Queries] --> P2[2. Web Search & Crawl] --> P3[3. Process URLs & Content];
-        API_File --> P4[1. Process Uploaded File];
-        P3 --> IngestDB[(Ingest into ChromaDB)];
-        P4 --> IngestDB;
-    end
+    subgraph "Backend (FastAPI)"
+        FE -- "1. POST /exam/from-topic\n(subject, specs)" --> FT[From Topic Workflow]
+        FE -- "1. POST /exam/from-file\n(file, metadata)" --> FF[From File Workflow]
 
-    subgraph "Exam Generation Pipeline"
-        IngestDB --> P5[4. Create Retrievers] --> P6[5. Generate Questions] --> P7[6. Solve Questions in Parallel] --> P8[7. Compile Final Documents];
-    end
+        subgraph From Topic Workflow
+            FT --> QG["2a. Generate Search Queries"]
+            QG --> WS["3a. Web & Image Search"]
+            WS --> C["4a. Crawl & Discover URLs"]
+            C --> DP["5a. Download & Process Content"]
+            DP --> VSM_T["6a. Ingest into ChromaDB"]
+        end
 
-    subgraph "Output to User"
-        P8 --> Stream["Streaming Response\n(SSE)"] --> Frontend[React Frontend] --> FinalDisplay[Display Exam & Progress];
+        subgraph From File Workflow
+            FF --> UP["2b. Process Uploaded File"]
+            UP --> VSM_F["3b. Ingest into ChromaDB"]
+            VSM_F --> SPG["4b. Generate Question Specs from Content"]
+        end
+        
+        subgraph Exam Generation Pipeline
+            VSM_T --> EGP
+            SPG --> EGP
+            EGP -- "7. Generate Questions" --> QGA[Question Generator Agent]
+            QGA -- "8. Solve in Parallel" --> SOLV[General & Math Solvers]
+            SOLV -- "9. Compile Documents" --> COMP[Exam Compiler Agent]
+        end
+        
+        COMP --> FINAL[Final Exam Object]
     end
     
-    style UserInputTopic fill:#d4edda,stroke:#155724
-    style UserInputFile fill:#d4edda,stroke:#155724
-    style Frontend fill:#cce5ff,stroke:#004085
+    FINAL -- "Streaming Updates & Final Result (SSE)" --> FE
+    FE -- "Displays Progress & Final Exam" --> U
+
+    style U fill:#d4edda,stroke:#155724,stroke-width:2px
+    style FE fill:#cce5ff,stroke:#004085,stroke-width:2px
 ```
 
 ## Tech Stack
