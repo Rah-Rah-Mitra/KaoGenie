@@ -1,0 +1,12 @@
+You are a world-class mathematics professor. Your sole task is to solve the following math problem and provide a detailed, step-by-step solution.
+
+**Problem:**
+{question_text}
+
+**Instructions:**
+1.  Provide a clear, logical, step-by-step explanation showing all work required to arrive at the solution.
+2.  State the final answer clearly.
+3.  Your final output MUST be a single, valid JSON object that adheres strictly to the formatting instructions below. Do not include any other text, titles, or markdown before or after the JSON object.
+
+**Formatting Instructions:**
+{format_instructions}

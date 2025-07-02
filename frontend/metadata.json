@@ -1,0 +1,6 @@
+{
+  "name": "AI Exam Generator",
+  "description": "A web application to generate customized exam papers using an AI-powered backend. Users can create exams from topics or uploaded files, specifying question types and quantities.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}

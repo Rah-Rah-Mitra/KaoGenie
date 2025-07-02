@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Exam Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" integrity="sha384-sN/JTRAKCKAAQR5BwjrEGDxcIO2sAOkPoL3O3iUTSQ2IewFjOdNQxMMVs8cmuxTj" crossorigin="anonymous">
+  <script>
+    // Configure Tailwind CSS for class-based dark mode
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          // You can add other theme customizations here if needed
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://rsms.me/inter/inter.css'); /* Moved to the top */
+    /* Custom scrollbar for webkit browsers */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--scrollbar-track-bg, #f1f1f1);
+      border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb-bg, #888);
+      border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--scrollbar-thumb-hover-bg, #555);
+    }
+
+    /* Apply dark mode scrollbar variables if html.dark class is present */
+    html.dark {
+      --scrollbar-track-bg: #2d3748; /* A dark slate color */
+      --scrollbar-thumb-bg: #718096; /* A lighter gray */
+      --scrollbar-thumb-hover-bg: #a0aec0; /* An even lighter gray for hover */
+    }
+
+    /* Basic body styling for better cross-browser consistency */
+    body {
+      font-family: 'Inter', sans-serif; /* A common sans-serif font often used with Tailwind */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    /* Fallback for Inter font if not loaded by Tailwind's default */
+    html { font-family: 'Inter', sans-serif; }
+    @supports (font-variation-settings: normal) {
+      html { font-family: 'Inter var', sans-serif; }
+    }
+    
+    /* KaTeX dark mode styles */
+    .dark .katex { color: #cbd5e1; /* slate-300 */ }
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
+    "remark-gfm": "https://esm.sh/remark-gfm@^4.0.1",
+    "remark-math": "https://esm.sh/remark-math@^6.0.0",
+    "rehype-katex": "https://esm.sh/rehype-katex@^7.0.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-200">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

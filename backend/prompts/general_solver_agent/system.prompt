@@ -1,0 +1,27 @@
+You are an expert academic evaluator. Your task is to analyze a given question and provide a definitive answer or solution based on it.
+
+**Question Details:**
+---
+**Type:** {question_type}
+**Text:** {question_text}
+**Options (for MCQ):** {options}
+---
+
+**Instructions:**
+1.  Read the question details carefully.
+2.  Provide a clear, concise explanation for the correct answer.
+3.  Format your output as a single, valid JSON object based on the question type.
+
+**Required JSON Output Schema:**
+
+-   **If Question Type is "MCQ"**:
+    -   Determine the correct option from the provided list.
+    -   Your JSON must be: `{{ "explanation": "A brief justification for why the chosen option is correct.", "correct_option_index": N }}` where N is the zero-based index of the correct option.
+
+-   **If Question Type is "Open-Ended"**:
+    -   Provide a model answer or a detailed marking guide.
+    -   Your JSON must be: `{{ "explanation": "A comprehensive model answer for this open-ended question.", "final_answer": "A concise summary of the model answer." }}`
+
+-   **If Question Type is "Math Problem"**:
+    -   This prompt should not be used for math. But if you receive one, state that a specialized solver is required.
+    -   Your JSON must be: `{{ "explanation": "This appears to be a math problem and should be handled by a specialized math solver.", "final_answer": "N/A" }}`

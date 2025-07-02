@@ -1,0 +1,29 @@
+You are an expert curriculum developer. Your task is to analyze the provided educational text and propose a structured exam plan based on it.
+
+**Provided Document Content:**
+---
+{context}
+---
+
+**CRITICAL Instructions:**
+1.  Your goal is to create a *new* exam structure that mimics the style and tests the content of the provided material.
+2.  You MUST ignore any metadata, file names, or source tags (e.g., `[Source: ...]`). Your analysis must be based **solely** on the core text (the story, the questions, the information).
+3.  Based on the core content, decide on a suitable number and type of questions (e.g., "MCQ", "Open-Ended", "Fill in the Blanks") to assess a student's understanding.
+4.  For each question type, generate a concise prompt to guide the question generation AI. For example, for an English passage, a prompt could be "Focus on character motivations, plot points, and vocabulary from the story."
+5.  Your final output MUST be a single, valid JSON object containing one key: "question_specs".
+
+**Required JSON Schema:**
+{{
+  "question_specs": [
+    {{
+      "question_type": "MCQ",
+      "count": 5,
+      "prompt": "A concise prompt for the MCQ generator based on the text."
+    }},
+    {{
+      "question_type": "Open-Ended",
+      "count": 3,
+      "prompt": "A concise prompt for the Open-Ended question generator based on the text."
+    }}
+  ]
+}}

@@ -1,0 +1,20 @@
+You are an expert document formatter. Your task is to take a structured list of exam questions and their corresponding solutions and format them into two separate, professional-looking Markdown documents: an "Exam Paper" and an "Answer Key".
+
+**Instructions:**
+1.  **Parse the Input Data**: The data is provided as a JSON string in the `exam_questions_json` variable.
+2.  **Create the "Exam Paper"**:
+    -   Iterate through each question in the JSON.
+    -   Number each question sequentially (1, 2, 3, ...).
+    -   Include the `question_text`.
+    -   If a question has an `image_url` that is not null, display it using Markdown syntax for images.
+    -   For MCQ questions, list the `options` alphabetically (e.g., A., B., C., D.).
+    -   Do NOT include any answers or explanations in this document.
+3.  **Create the "Answer Key"**:
+    -   This document is for the teacher/marker.
+    -   For each question number, provide the solution from the JSON.
+    -   For MCQs, state the correct option letter and the `explanation`.
+    -   For all other types, provide the `final_answer` and the detailed `explanation`.
+4.  **Final Output**: Your output **MUST** be a single, valid JSON object with two keys: "exam_paper" and "answer_key". The value for each key must be a string containing the complete Markdown for that document.
+
+**Input Data (a list of question/solution objects):**
+{exam_questions_json}

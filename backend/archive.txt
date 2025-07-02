@@ -1,0 +1,1656 @@
+./
+  .git/
+  .venv/
+  chroma_store/
+  config/
+    __pycache__/
+    logging_config.py
+      # config/logging_config.py
+      import logging.config
+      from pathlib import Path
+      
+      def setup_logging():
+          """
+          Configures logging for the entire application.
+          - Creates a 'logs' directory if it doesn't exist.
+          - Sets up logging to both console (INFO) and a rotating file (DEBUG).
+          - Silences noisy third-party libraries.
+          """
+          log_dir = Path("logs")
+          log_dir.mkdir(exist_ok=True)
+          log_file = log_dir / "app.log"
+      
+          LOGGING_CONFIG = {
+              "version": 1,
+              "disable_existing_loggers": False,
+              "formatters": {
+                  "default": {
+                      "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                      "datefmt": "%Y-%m-%d %H:%M:%S",
+                  },
+              },
+              "handlers": {
+                  "console": {
+                      "class": "logging.StreamHandler",
+                      "level": "INFO",
+                      "formatter": "default",
+                      "stream": "ext://sys.stdout",
+                  },
+                  "file": {
+                      "class": "logging.handlers.RotatingFileHandler",
+                      "level": "DEBUG",
+                      "formatter": "default",
+                      "filename": log_file,
+                      "maxBytes": 10485760,  # 10MB
+                      "backupCount": 5,
+                      "encoding": "utf8",
+                  },
+              },
+              "loggers": {
+                  # Silence noisy libraries by setting their level to WARNING or ERROR
+                  "httpx": {"level": "WARNING", "handlers": ["console", "file"], "propagate": False},
+                  "httpcore": {"level": "WARNING", "handlers": ["console", "file"], "propagate": False},
+                  "chromadb": {"level": "WARNING", "handlers": ["console", "file"], "propagate": False},
+                  "unstructured": {"level": "WARNING", "handlers": ["console", "file"], "propagate": False},
+                  "pdfminer": {"level": "ERROR", "handlers": ["console", "file"], "propagate": False},
+                  "googleapiclient": {"level": "WARNING", "handlers": ["console", "file"], "propagate": False},
+              },
+              "root": {
+                  "level": "DEBUG",  # Capture all levels, handlers will filter
+                  "handlers": ["console", "file"],
+              },
+          }
+      
+          logging.config.dictConfig(LOGGING_CONFIG)
+          logging.info("Logging configured successfully.")
+    settings.py
+      # config/settings.py
+      from pydantic_settings import BaseSettings, SettingsConfigDict
+      
+      class Settings(BaseSettings):
+          # Load from .env file
+          model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+      
+          # --- API Keys ---
+          OPENAI_API_KEY: str
+          GOOGLE_API_KEY: str
+          GOOGLE_CSE_ID: str
+      
+          # --- LLM & Search Configuration ---
+          LLM_MODEL: str = "gpt-4.5-preview"
+          SEARCH_QUERIES_TO_GENERATE: int = 5
+          SEARCH_MAX_RESULTS_PER_QUERY: int = 5
+          IMAGE_SEARCH_QUERIES_TO_GENERATE: int = 3
+          IMAGE_SEARCH_MAX_RESULTS_PER_QUERY: int = 10
+          RETRIEVER_TOP_K: int = 8  # How many docs to retrieve for each research sub-question
+          IMAGE_RETRIEVER_TOP_K: int = 5 # How many images to retrieve for the report
+          
+          # --- Data Ingestion & Report Generation Configuration ---
+          DOWNLOADER_TIMEOUT: int = 10 # Timeout in seconds for downloading a single URL
+          INGESTION_CONCURRENT_DOWNLOADS: int = 5
+          REPORT_GENERATION_MAX_CONCURRENCY: int = 2 
+          CHUNK_SIZE: int = 1000
+          CHUNK_OVERLAP: int = 200
+          CHROMA_BATCH_SIZE: int = 5000
+          IMAGE_PARTITIONING_STRATEGY: str = "auto"
+      
+          # --- Vector Store Configuration ---
+          CHROMA_PERSIST_DIR: str = "./chroma_store"
+          
+          # --- Web Crawler (Playwright + Crawl4AI) Configuration ---
+          CRAWLER_USER_AGENT: str = "DeepSearcherBot/1.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+          CRAWLER_MAX_CONCURRENCY: int = 5 # Controls concurrency for BOTH Playwright and Crawl4AI
+      
+          # Playwright settings for initial URL expansion
+          BROWSER_PAGE_TIMEOUT: int = 30000 # Timeout in milliseconds for loading a page
+          BROWSER_MAX_EXPAND_LINKS_PER_PAGE: int = 30 # Max new links to discover from a single URL to avoid link farms
+      
+          # Crawl4AI settings for focused, guided crawling
+          CRAWLER_PROVIDER: str = "gemini/gemini-2.0-flash-exp" # Model for guiding the crawl (if using LLMScorer)
+          CRAWLER_DEPTH: int = 2
+          CRAWLER_MAX_PAGES: int = 10 # Increase slightly for LLM-guided crawl to explore more promising paths
+          CRAWLER_SCORER_WORDLIST: list = ["sustainability", "esg", "governance", "report", "policy", "ethics", "social", "environment"]
+          CRAWLER_EXCLUDE_PATTERNS: list[str] = [
+              r".*/careers.*", r".*/login.*", r".*/signin.*", r".*/register.*",
+              r".*/press.*", r".*/contact.*", r".*mailto:.*", r".*tel:.*",
+              r".*\.(jpg|jpeg|png|gif|svg|zip|exe|dmg|mp4|mp3)$",
+              r".*#.*"
+          ]
+      
+      # Create a single settings instance to be imported across the application
+      settings = Settings()
+    __init__.py
+
+  logs/
+  prompts/
+    critique_agent/
+      system.prompt
+        You are a meticulous editor and critic. Your job is to review a draft report and provide actionable feedback to improve it.
+        
+        **Instructions:**
+        1.  Read the "Research Topic" to understand the goal of the report.
+        2.  Read the "Draft Report" carefully.
+        3.  Analyze the draft for weaknesses based on the following criteria:
+            - **Clarity and Cohesion:** Is the report easy to understand? Does it flow logically?
+            - **Objectivity:** Does the report present information neutrally, or does it use biased language?
+            - **Completeness:** Does the report seem to be missing key information that one would expect for the topic? (Even if you don't have the source data, you can flag logical gaps).
+            - **Structure:** Is the report well-organized with clear headings and sections?
+            - **Citation:** Are citations present where needed? (Assume the content of the citations is correct).
+        4.  Provide a bulleted list of specific, constructive criticisms. For each point, explain the problem and suggest a concrete way to fix it.
+        
+        **DO NOT REWRITE THE REPORT.** Your only output is the list of critiques. If the report is excellent and has no flaws, respond with "No critiques. The report is well-structured and comprehensive."
+    query_generator/
+      system.prompt
+        You are an expert intelligence analyst specializing in corporate research. Your task is to generate a list of precise and effective Google search queries to gather comprehensive information on a specific company and topic.
+        
+        **Instructions:**
+        1.  Read the Brand, Research Topic, and **Search Type** carefully.
+        2.  Brainstorm a diverse set of exactly {num_queries} search queries that cover multiple angles of the research topic.
+        3.  **If the Search Type is 'text'**:
+            - You MUST leverage advanced search operators from the toolkit below to maximize relevance.
+            - Focus on finding official reports (`filetype:pdf`), policies (`inurl:governance`), and news.
+        4.  **If the Search Type is 'image'**:
+            - Generate descriptive queries to find relevant visuals like infographics, event photos, product shots, or charts.
+            - Avoid operators like `filetype:` or `inurl:`. Focus on descriptive phrases.
+            - Example queries: "{brand} sustainability report infographic", "{brand} community outreach programs photos", "{brand} manufacturing process chart".
+        5.  Your final output MUST be a JSON object containing a single key "queries", which holds a list of the generated query strings.
+        
+        **Advanced Operator Toolkit (for 'text' search type):**
+        - `site:domain.com`: Restricts search to a specific website.
+        - `filetype:pdf`: Searches for specific file types.
+        - `inurl:keyword`: Finds pages with a specific keyword in the URL.
+        - `intitle:keyword`: Finds pages with a specific keyword in the title.
+        - `""`: Searches for an exact phrase.
+        - `-keyword`: Excludes a keyword.
+        - `OR`: Searches for one term or another (must be in uppercase).
+        
+        **Brand:**
+        {brand}
+        
+        **Research Topic:**
+        {topic}
+        
+        **Search Type:**
+        {search_type}
+        
+        **Example Output (for 'text' search):**
+        {{
+          "queries": [
+            "site:examplecorp.com filetype:pdf (ESG OR sustainability OR \"corporate responsibility\") report",
+            "(site:reuters.com OR site:bloomberg.com) \"ExampleCorp\" (labor OR environmental) (controversy OR fine OR lawsuit)",
+            "site:examplecorp.com inurl:governance \"supplier code of conduct\""
+          ]
+        }}
+    report_agent/
+      system.prompt
+        You are an expert analyst and writer. Your task is to synthesize raw research findings for a specific company into a professional, well-structured, and comprehensive report section.
+        
+        **Instructions:**
+        1.  Carefully review the provided "Raw Research Findings" for **{brand}**. This is your ONLY source of information. Do not add any external knowledge.
+        2.  Organize the findings into a logical narrative that directly addresses the "Research Topic".
+        3.  Rewrite the question-and-answer pairs into smooth, well-written paragraphs. The report should be written about **{brand}**.
+        4.  Ensure all claims are directly supported by the provided findings. Maintain all source citations `[Source: URL]` exactly as they appear in the findings.
+        5.  If a **"Relevant Image URL"** is provided, you MUST include it in the report where it is most contextually appropriate. Use Markdown format: `![A relevant image based on the research]({image_url})`.
+        6.  If "Critique and Improvement Suggestions" are provided, you MUST address them in your revised report. Use the critique to refine the structure, tone, and content.
+        
+        **Input Context:**
+        - **Brand:** {brand}
+        - **Research Topic:** {topic}
+        - **Raw Research Findings:** A JSON blob of question-answer pairs with sources.
+        - **Relevant Image URL (Optional):** {image_url}
+        - **Critique and Improvement Suggestions (Optional):** Feedback on a previous draft. If present, your primary goal is to fix the issues raised.
+        
+        Produce a polished final report section in Markdown format.
+    research_agent/
+      system.prompt
+        You are an expert AI research assistant. Your goal is to conduct unbiased research on a given topic by synthesizing information from the provided document chunks.
+        
+        **Instructions:**
+        1.  Read the user's research topic for the specified **brand** carefully.
+        2.  For the main topic, you MUST formulate a series of 3-5 specific, targeted questions that break down the topic *as it relates to the brand*.
+        3.  For each question, synthesize the information from the **provided document chunks**. Each chunk is preceded by its source URL.
+        4.  Your answer to each question MUST be directly supported by the text in the document chunks and should explicitly mention the brand where relevant.
+        5.  You MUST populate a list of `source_documents` for each finding. This list must contain the verbatim text chunk (`content`) you used and its corresponding `source` URL.
+        6.  If you cannot find an answer in the documents, state that clearly in the `answer` field and provide an empty list for `source_documents`.
+        
+        **Provided Context Format:**
+        Each piece of information is presented in the following format:
+        [Source: URL]
+        [Page: Number (for PDFs)]
+        Content of the document chunk...
+        
+        ---
+        
+        **Required Output Format:**
+        Your final output MUST be a valid JSON object matching this structure:
+        {{
+          "findings": [
+            {{
+              "question": "The specific question you formulated about the brand.",
+              "answer": "A synthesized answer based only on the provided context, mentioning the brand.",
+              "source_documents": [
+                {{
+                  "source": "The exact URL provided in the context.",
+                  "page_number": The page number if provided, otherwise null,
+                  "content": "The verbatim text chunk from the context that supports the answer."
+                }}
+              ]
+            }}
+          ]
+        }}
+  src/
+    deep_searcher/
+      agents/
+        __pycache__/
+        critique_agent.py
+          # src/deep_searcher/agents/critique_agent.py
+          from langchain_core.output_parsers import StrOutputParser
+          from langchain_core.prompts import ChatPromptTemplate
+          from langchain_core.runnables import Runnable
+          from langchain_openai import ChatOpenAI
+          
+          from config.settings import settings
+          from src.deep_searcher.utils.file_utils import load_prompt
+          
+          class CritiqueAgent:
+              """An agent that reviews a draft report and provides actionable feedback."""
+              def __init__(self):
+                  self.llm = ChatOpenAI(
+                      model=settings.LLM_MODEL,
+                      temperature=0.0,
+                      openai_api_key=settings.OPENAI_API_KEY
+                  )
+                  self.prompt_template = load_prompt("prompts/critique_agent/system.prompt")
+                  
+                  # The chain takes the topic and the draft report to critique
+                  self.chain: Runnable = (
+                      ChatPromptTemplate.from_messages([
+                          ("system", self.prompt_template),
+                          ("human", "Research Topic: {topic}\n\nDraft Report:\n{draft_report}")
+                      ])
+                      | self.llm
+                      | StrOutputParser()
+                  )
+        query_generator_agent.py
+          # src/deep_searcher/agents/query_generator_agent.py
+          from langchain_core.output_parsers import JsonOutputParser
+          from langchain_core.prompts import ChatPromptTemplate
+          from langchain_core.runnables import Runnable
+          from langchain_openai import ChatOpenAI
+          
+          from config.settings import settings
+          from src.deep_searcher.utils.file_utils import load_prompt
+          from src.deep_searcher.models.report_models import GeneratedQueries
+          
+          class SearchQueryGeneratorAgent:
+              """An agent that generates a list of search queries based on a brand and topic."""
+              def __init__(self):
+                  self.llm = ChatOpenAI(
+                      model=settings.LLM_MODEL,
+                      temperature=0.2,
+                      openai_api_key=settings.OPENAI_API_KEY
+                  )
+                  self.prompt_template = load_prompt("prompts/query_generator/system.prompt")
+                  self.parser = JsonOutputParser(pydantic_object=GeneratedQueries)
+          
+                  self.chain: Runnable = (
+                      ChatPromptTemplate.from_template(self.prompt_template)
+                      | self.llm
+                      | self.parser
+                  )
+        report_agent.py
+          # src/deep_searcher/agents/report_agent.py
+          from langchain_core.output_parsers import StrOutputParser
+          from langchain_core.prompts import ChatPromptTemplate
+          from langchain_core.runnables import Runnable
+          from langchain_openai import ChatOpenAI
+          
+          from config.settings import settings
+          from src.deep_searcher.utils.file_utils import load_prompt
+          
+          class ReportAgent:
+              """An agent that synthesizes research findings into a polished report."""
+              def __init__(self):
+                  self.llm = ChatOpenAI(
+                      model=settings.LLM_MODEL,
+                      temperature=0.1,
+                      openai_api_key=settings.OPENAI_API_KEY
+                  )
+                  self.prompt_template = load_prompt("prompts/report_agent/system.prompt")
+          
+                  # The chain now takes a dictionary with brand, topic, findings, image_url, and optional critique
+                  self.chain: Runnable = (
+                      ChatPromptTemplate.from_messages([
+                          ("system", self.prompt_template),
+                          ("human", "Brand: {brand}\nResearch Topic: {topic}\n\nRaw Research Findings:\n{research_findings}\n\nRelevant Image URL: {image_url}\n\nCritique and Improvement Suggestions:\n{critique}")
+                      ])
+                      | self.llm
+                      | StrOutputParser()
+                  )
+        research_agent.py
+          # src/deep_searcher/agents/research_agent.py
+          from langchain_core.output_parsers import JsonOutputParser
+          from langchain_core.prompts import ChatPromptTemplate
+          from langchain_core.runnables import Runnable, RunnablePassthrough
+          from langchain.schema.retriever import BaseRetriever
+          from langchain.schema.document import Document
+          from langchain_openai import ChatOpenAI
+          
+          from config.settings import settings
+          from src.deep_searcher.utils.file_utils import load_prompt
+          from src.deep_searcher.models.report_models import ResearchFindings
+          
+          class ResearchAgent:
+              def __init__(self, retriever: BaseRetriever):
+                  self.retriever = retriever
+                  self.llm = ChatOpenAI(
+                      model=settings.LLM_MODEL,
+                      temperature=0,
+                      openai_api_key=settings.OPENAI_API_KEY
+                  )
+                  self.prompt_template = load_prompt("prompts/research_agent/system.prompt")
+                  self.parser = JsonOutputParser(pydantic_object=ResearchFindings)
+          
+                  # The chain now requires 'brand' and 'topic'
+                  self.chain: Runnable = (
+                      RunnablePassthrough.assign(
+                          context=lambda x: self._format_docs(self.retriever.invoke(x["topic"]))
+                      )
+                      # The human message now includes the brand for more focused questions
+                      | ChatPromptTemplate.from_messages([
+                          ("system", self.prompt_template),
+                          ("human", "Brand: {brand}\nResearch Topic: {topic}")
+                      ])
+                      | self.llm
+                      | self.parser
+                  )
+          
+              def _format_docs(self, docs: list[Document]) -> str:
+                  """
+                  Formats retrieved documents to include their source metadata explicitly in the context string.
+                  """
+                  if not docs:
+                      return "No documents found in the vector store for this topic."
+                      
+                  formatted_docs = []
+                  for doc in docs:
+                      source = doc.metadata.get('source', 'N/A')
+                      page = doc.metadata.get('page_number')
+                      header = f"[Source: {source}]"
+                      if page:
+                          header += f"\n[Page: {page}]"
+                      
+                      formatted_docs.append(f"{header}\n{doc.page_content}")
+                      
+                  return "\n\n---\n\n".join(formatted_docs)
+        __init__.py
+
+      chains/
+        __pycache__/
+        report_chain.py
+          # src/deep_searcher/chains/report_chain.py
+          import json
+          from operator import itemgetter
+          from functools import partial
+          from langchain_core.runnables import Runnable, RunnablePassthrough, RunnableLambda
+          from langchain.schema.retriever import BaseRetriever
+          from langchain.schema.document import Document
+          
+          from src.deep_searcher.agents.research_agent import ResearchAgent
+          from src.deep_searcher.agents.report_agent import ReportAgent
+          from src.deep_searcher.agents.critique_agent import CritiqueAgent
+          from src.deep_searcher.vector_store.manager import VectorStoreManager
+          from src.deep_searcher.models.report_models import ResearchFindings
+          
+          def format_findings_for_report(findings_data: dict) -> str:
+              # ... (this function is unchanged) ...
+              try:
+                  research_findings = ResearchFindings.model_validate(findings_data)
+                  if not research_findings.findings:
+                      return "No findings were generated by the research agent."
+                  report_input_parts = []
+                  for i, finding in enumerate(research_findings.findings):
+                      report_input_parts.append(f"--- Finding {i+1} ---")
+                      report_input_parts.append(f"Question: {finding.question}")
+                      report_input_parts.append(f"Answer: {finding.answer}")
+                      source_texts = []
+                      for doc in finding.source_documents:
+                          page_info = f", Page: {doc.page_number}" if doc.page_number else ""
+                          source_texts.append(f"\"{doc.content}\" [Source: {doc.source}{page_info}]")
+                      if source_texts:
+                          report_input_parts.append("Supporting Evidence:\n" + "\n".join(source_texts))
+                  return "\n\n".join(report_input_parts)
+              except Exception as e:
+                  return f"Error formatting findings: {e}\nRaw data: {json.dumps(findings_data, indent=2)}"
+          
+          
+          def _get_relevant_image_url(retriever: BaseRetriever, topic: str) -> str:
+              """Invokes the image retriever to find the most relevant image URL for a topic."""
+              docs = retriever.invoke(topic)
+              if docs and isinstance(docs, list) and len(docs) > 0 and docs[0].metadata.get("source"):
+                  return docs[0].metadata["source"]
+              return "No relevant image found."
+          
+          def _get_all_retrieved_image_urls(retriever: BaseRetriever, topic: str) -> list[str]:
+              """Invokes the image retriever and returns a list of all retrieved image source URLs."""
+              docs = retriever.invoke(topic)
+              if not docs:
+                  return []
+              urls = [doc.metadata.get("source") for doc in docs if doc.metadata.get("source")]
+              return urls
+          
+          def create_report_generation_chain(brand: str, vsm: VectorStoreManager) -> Runnable:
+              """
+              Creates the agent chain for generating a report, now with image retrieval.
+              Flow: (Research + Image Retrieval) -> Report -> Critique -> Final Report
+              """
+              report_retriever = vsm.create_retriever(brand=brand, collection_type="reports")
+              image_retriever = vsm.create_retriever(brand=brand, collection_type="images")
+          
+              research_agent = ResearchAgent(retriever=report_retriever)
+              report_agent = ReportAgent()
+              critique_agent = CritiqueAgent()
+              
+              # 1. A runnable to format findings. This fixes the TypeError.
+              format_findings_runnable = RunnableLambda(format_findings_for_report)
+          
+              # 2. The main research and drafting step
+              research_and_draft_step = RunnablePassthrough.assign(
+                  research_findings=research_agent.chain,
+                  image_url=itemgetter("topic") | RunnableLambda(partial(_get_relevant_image_url, image_retriever)),
+                  retrieved_image_urls=itemgetter("topic") | RunnableLambda(partial(_get_all_retrieved_image_urls, image_retriever)),
+              ).assign(
+                  draft_report=(
+                      lambda x: {
+                          "brand": x["brand"],
+                          "topic": x["topic"],
+                          "research_findings": format_findings_runnable.invoke(x["research_findings"]),
+                          "image_url": x["image_url"],
+                          "critique": "N/A - This is the first draft.",
+                      }
+                  ) | report_agent.chain
+              )
+          
+              # 3. The critique step
+              critique_step = RunnablePassthrough.assign(
+                  critique=(
+                      lambda x: { "topic": x["topic"], "draft_report": x["draft_report"] }
+                  ) | critique_agent.chain
+              )
+          
+              # 4. The final report generation step
+              final_report_step = RunnablePassthrough.assign(
+                  final_report=(
+                      lambda x: {
+                          "brand": x["brand"],
+                          "topic": x["topic"],
+                          "research_findings": format_findings_runnable.invoke(x["research_findings"]),
+                          "image_url": x["image_url"],
+                          "critique": x["critique"],
+                      }
+                  ) | report_agent.chain,
+                  # Also prepare the formatted findings for the final output
+                  research_findings_formatted=itemgetter("research_findings") | format_findings_runnable
+              )
+              
+              # 5. Chain them all together
+              full_chain = (
+                  research_and_draft_step
+                  | critique_step
+                  | final_report_step
+              )
+          
+              return full_chain
+        __init__.py
+
+      data_pipeline/
+        __pycache__/
+        crawler.py
+          # src/deep_searcher/data_pipeline/crawler.py
+          import asyncio
+          import logging
+          import re
+          from urllib.parse import urlparse, urljoin
+          from pathlib import Path
+          from typing import List, Dict, Set
+          
+          from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+          from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
+          from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+          from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
+          from crawl4ai.deep_crawling.filters import (
+              FilterChain,
+              URLPatternFilter,
+              ContentTypeFilter,
+          )
+          from playwright.async_api import async_playwright, TimeoutError, Browser
+          
+          from config.settings import settings
+          from src.deep_searcher.data_pipeline.url_processor import PARTITION_DISPATCHER
+          from src.deep_searcher.utils.url_utils import normalize_url
+          
+          logger = logging.getLogger(__name__)
+          
+          
+          # --- NEW HELPER FUNCTION ---
+          def _is_pdf(url: str) -> bool:
+              """A simple helper to check if a URL points to a PDF."""
+              return url.lower().strip().endswith(".pdf")
+          
+          
+          # --- PLAYWRIGHT LOGIC (UNCHANGED) ---
+          async def _expand_single_url_with_playwright(browser: Browser, url: str) -> Set[str]:
+              """Uses Playwright to visit a URL and extract all valid, on-domain links."""
+              found_links = set()
+              context = None
+              try:
+                  base_domain = urlparse(url).netloc
+                  context = await browser.new_context(user_agent=settings.CRAWLER_USER_AGENT)
+                  page = await context.new_page()
+                  await page.goto(url, timeout=settings.BROWSER_PAGE_TIMEOUT, wait_until='domcontentloaded')
+                  hrefs = await page.locator("a[href]").evaluate_all("elements => elements.map(e => e.href)")
+          
+                  for link in hrefs:
+                      absolute_link = urljoin(url, link)
+                      normalized_link = normalize_url(absolute_link)
+                      if not normalized_link or urlparse(normalized_link).netloc != base_domain:
+                          continue
+                      if any(re.search(pattern, normalized_link, re.IGNORECASE) for pattern in settings.CRAWLER_EXCLUDE_PATTERNS):
+                          continue
+                      found_links.add(normalized_link)
+                  
+                  if len(found_links) > settings.BROWSER_MAX_EXPAND_LINKS_PER_PAGE:
+                      return set(list(found_links)[:settings.BROWSER_MAX_EXPAND_LINKS_PER_PAGE])
+                  return found_links
+              except TimeoutError:
+                  logger.warning(f"Playwright timeout error for URL: {url}")
+                  return set()
+              except Exception as e:
+                  # This will catch the net::ERR_ABORTED but we prevent it from happening now
+                  logger.error(f"Unexpected Playwright error for {url}: {e}")
+                  return set()
+              finally:
+                  if context:
+                      await context.close()
+          
+          
+          async def _expand_urls_with_playwright(initial_urls: List[str]) -> Set[str]:
+              """Takes a list of URLs and uses Playwright to discover more links on each page."""
+              logger.info(f"Expanding {len(initial_urls)} initial HTML URLs with Playwright...")
+              all_expanded_urls = set(initial_urls)
+              
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(headless=True)
+                  semaphore = asyncio.Semaphore(settings.CRAWLER_MAX_CONCURRENCY)
+          
+                  async def bounded_expand_task(url: str):
+                      async with semaphore:
+                          return await _expand_single_url_with_playwright(browser, url)
+          
+                  tasks = [bounded_expand_task(url) for url in initial_urls]
+                  results = await asyncio.gather(*tasks, return_exceptions=True)
+                  await browser.close()
+          
+              for result in results:
+                  if isinstance(result, set):
+                      all_expanded_urls.update(result)
+          
+              logger.info(f"Playwright expansion finished. Total HTML URLs now: {len(all_expanded_urls)}.")
+              return all_expanded_urls
+          
+          
+          # --- CRAWL4AI HELPER (UNCHANGED) ---
+          def _get_relevant_crawl_base(url: str) -> str | None:
+              """Intelligently determines the best starting point for a crawl from a given URL."""
+              try:
+                  # This function correctly ignores PDFs already
+                  parsed_url = urlparse(url)
+                  if parsed_url.scheme not in ['http', 'https'] or _is_pdf(url) or any(url.lower().endswith(ext) for ext in ['.jpg', '.png', '.zip']):
+                      return None
+                  path = Path(parsed_url.path)
+                  crawl_path = path.parent if path.suffix else path
+                  base = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                  return urljoin(base, str(crawl_path) + '/')
+              except Exception:
+                  return None
+          
+          
+          # --- REWRITTEN DISCOVERY PIPELINE ---
+          async def discover_urls_from_hits(hits: List[Dict]) -> List[str]:
+              """
+              Takes search hits, segregates PDFs from HTML, expands HTML links with Playwright,
+              then uses Crawl4AI for intelligent, focused crawling before combining all results.
+              """
+              if not hits:
+                  return []
+          
+              # Step 1: Segregate initial URLs into PDFs and pages to expand
+              initial_urls = {normalize_url(hit['href']) for hit in hits if hit.get('href')}
+              pdf_urls = {url for url in initial_urls if _is_pdf(url)}
+              urls_to_expand = {url for url in initial_urls if not _is_pdf(url)}
+              logger.info(f"Step 1: Segregated URLs. Found {len(pdf_urls)} PDFs and {len(urls_to_expand)} pages to expand.")
+          
+              # Step 2: Use Playwright to expand ONLY the non-PDF (HTML) URLs
+              all_html_urls = set()
+              if urls_to_expand:
+                  all_html_urls = await _expand_urls_with_playwright(list(urls_to_expand))
+              else:
+                  all_html_urls = urls_to_expand
+          
+              # Step 3: From the expanded HTML list, determine base directories for Crawl4AI
+              relevant_crawl_bases: Set[str] = {base for url in all_html_urls if (base := _get_relevant_crawl_base(url))}
+              logger.info(f"Step 3: Identified {len(relevant_crawl_bases)} unique sub-directories for Crawl4AI.")
+          
+              # Step 4: Use Crawl4AI for a deep, guided crawl on the base directories
+              crawled_urls = set()
+              if relevant_crawl_bases:
+                  logger.info("Step 4: Starting focused crawl with Crawl4AI...")
+                  browser_config = BrowserConfig(user_agent=settings.CRAWLER_USER_AGENT, headless=True)
+                  async with AsyncWebCrawler(config=browser_config) as crawler:
+                      # ... (Crawl4AI config remains the same)
+                      scorer = KeywordRelevanceScorer(keywords=settings.CRAWLER_SCORER_WORDLIST, weight=0.7)
+                      filter_chain = FilterChain([
+                          URLPatternFilter(patterns=settings.CRAWLER_EXCLUDE_PATTERNS, reverse=True),
+                          ContentTypeFilter(allowed_types=list(PARTITION_DISPATCHER.keys()))
+                      ])
+                      deep_crawl_strategy = BestFirstCrawlingStrategy(
+                          max_depth=settings.CRAWLER_DEPTH, max_pages=settings.CRAWLER_MAX_PAGES,
+                          url_scorer=scorer, filter_chain=filter_chain, include_external=False
+                      )
+                      run_config = CrawlerRunConfig(
+                          deep_crawl_strategy=deep_crawl_strategy, scraping_strategy=LXMLWebScrapingStrategy(), verbose=False
+                      )
+                      tasks = [crawler.arun(url=base_url, config=run_config) for base_url in relevant_crawl_bases]
+                      list_of_crawl_results = await asyncio.gather(*tasks, return_exceptions=True)
+          
+                      for crawl_result_list in list_of_crawl_results:
+                          if isinstance(crawl_result_list, Exception):
+                              logger.error(f"A Crawl4AI task failed: {crawl_result_list}")
+                          elif crawl_result_list:
+                              for page_result in crawl_result_list:
+                                  crawled_urls.add(page_result.url)
+          
+              # Step 5: Combine all URL sets for the final result
+              # This includes:
+              #   - The original PDFs we set aside
+              #   - All HTML pages discovered by Playwright
+              #   - All pages discovered by Crawl4AI
+              final_url_set = pdf_urls.union(all_html_urls).union(crawled_urls)
+              
+              logger.info(f"Discovery complete. Total unique URLs (including preserved PDFs): {len(final_url_set)}.")
+              logger.info(final_url_set)
+              
+              return list(final_url_set)
+        test.py
+          # src/deep_searcher/data_pipeline/url_processor.py
+          import asyncio
+          import logging
+          from io import BytesIO
+          from functools import partial
+          from concurrent.futures import ThreadPoolExecutor
+          from typing import Callable, Tuple, Dict, List
+          
+          import aiohttp
+          from unstructured.partition.html import partition_html
+          from unstructured.partition.pdf import partition_pdf
+          from unstructured.documents.elements import Element as UnstructuredElement
+          from langchain_core.documents import Document
+          
+          logger = logging.getLogger(__name__)
+          
+          # --- 1. Define more realistic browser headers ---
+          HEADERS = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Connection': 'keep-alive',
+          }
+          # ---------------------------------------------
+          
+          PARTITION_DISPATCHER: Dict[str, Callable[..., List[UnstructuredElement]]] = {
+              "application/pdf": partial(partition_pdf, strategy="fast", extract_images_in_pdf=False),
+              "text/html": partial(partition_html, strategy="fast"),
+          }
+          
+          print(list(PARTITION_DISPATCHER.keys()))
+        url_processor.py
+          # src/deep_searcher/data_pipeline/url_processor.py
+          import asyncio
+          import logging
+          from io import BytesIO
+          from functools import partial
+          from concurrent.futures import ThreadPoolExecutor
+          from typing import Callable, Tuple, Dict, List
+          
+          import aiohttp
+          from unstructured.partition.html import partition_html
+          from unstructured.partition.pdf import partition_pdf
+          from unstructured.partition.image import partition_image
+          from unstructured.documents.elements import Element as UnstructuredElement
+          from langchain_core.documents import Document
+          
+          from config.settings import settings
+          from src.deep_searcher.utils.url_utils import normalize_url
+          
+          logger = logging.getLogger(__name__)
+          
+          HEADERS = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Connection': 'keep-alive',
+          }
+          
+          PARTITION_DISPATCHER: Dict[str, Callable[..., List[UnstructuredElement]]] = {
+              "application/pdf": partial(partition_pdf, strategy="fast", extract_images_in_pdf=False),
+              "text/html": partial(partition_html, strategy="fast"),
+              "image/jpeg": partial(partition_image, strategy=settings.IMAGE_PARTITIONING_STRATEGY),
+              "image/png": partial(partition_image, strategy=settings.IMAGE_PARTITIONING_STRATEGY),
+              "image/gif": partial(partition_image, strategy=settings.IMAGE_PARTITIONING_STRATEGY),
+              "image/webp": partial(partition_image, strategy=settings.IMAGE_PARTITIONING_STRATEGY),
+          }
+          
+          async def _download_content(session: aiohttp.ClientSession, url: str) -> Tuple[bytes | None, str | None]:
+              """Asynchronously downloads content from a URL with improved headers and timeout."""
+              try:
+                  timeout = aiohttp.ClientTimeout(total=settings.DOWNLOADER_TIMEOUT)
+                  async with session.get(url, timeout=timeout, headers=HEADERS, ssl=False) as resp:
+                      resp.raise_for_status()
+                      content_bytes = await resp.read()
+                      content_type = resp.headers.get("Content-Type", "").split(";")[0]
+                      return content_bytes, content_type
+              except Exception as e:
+                  logger.warning(f"Failed to download {url}. Reason: {e}")
+                  return None, None
+          
+          def _partition_and_convert(content_bytes: bytes, content_type: str, source_url: str) -> List[Document]:
+              """Partitions content and converts unstructured Elements to LangChain Documents."""
+              if not content_bytes or not content_type:
+                  return []
+              partition_func = PARTITION_DISPATCHER.get(content_type)
+              if not partition_func:
+                  logger.warning(f"Skipping partitioning for unsupported content type: {content_type} from {source_url}")
+                  return []
+                  
+              try:
+                  # For images, unstructured needs the 'file' and 'file_filename'
+                  if content_type.startswith("image/"):
+                       elements = partition_func(file=BytesIO(content_bytes), file_filename=source_url)
+                  else:
+                       elements = partition_func(file=BytesIO(content_bytes), metadata_filename=source_url)
+                  
+                  docs = []
+                  for el in elements:
+                      metadata = el.metadata.to_dict()
+                      metadata['source'] = metadata.get('filename', source_url) # Ensure source is consistent
+                      docs.append(Document(page_content=el.text, metadata=metadata))
+                  return docs
+          
+              except Exception as e:
+                  logger.error(f"Failed to partition {source_url} ({content_type}): {e}")
+                  return []
+          
+          async def process_urls(urls: List[str]) -> List[Document]:
+              """Main function to process a list of URLs into LangChain Documents."""
+              normalized_urls = {normalize_url(u) for u in urls if u}
+              logger.info(f"Processing {len(normalized_urls)} unique, normalized URLs (from an initial list of {len(urls)}).")
+          
+              all_processed_docs: List[Document] = []
+              
+              # Use a semaphore to limit concurrent downloads to avoid overwhelming servers
+              semaphore = asyncio.Semaphore(settings.INGESTION_CONCURRENT_DOWNLOADS)
+              
+              async def process_single_url(url: str, session: aiohttp.ClientSession, executor: ThreadPoolExecutor, loop):
+                  async with semaphore:
+                      content_bytes, content_type = await _download_content(session, url)
+                      if content_bytes and content_type:
+                          return await loop.run_in_executor(
+                              executor,
+                              partial(_partition_and_convert, content_bytes, content_type, url)
+                          )
+                  return []
+          
+              async with aiohttp.ClientSession() as session:
+                  with ThreadPoolExecutor() as executor:
+                      loop = asyncio.get_running_loop()
+                      tasks = [process_single_url(url, session, executor, loop) for url in normalized_urls if url]
+                      
+                      results = await asyncio.gather(*tasks)
+                      for doc_list in results:
+                          if doc_list:
+                              all_processed_docs.extend(doc_list)
+          
+              logger.info(f"URL processing complete. Generated {len(all_processed_docs)} initial LangChain documents.")
+              return all_processed_docs
+        web_searcher.py
+          # src/deep_searcher/data_pipeline/web_searcher.py
+          import asyncio
+          import itertools
+          import logging
+          from functools import partial
+          from concurrent.futures import ThreadPoolExecutor
+          
+          from googleapiclient.discovery import build
+          from config.settings import settings
+          
+          logger = logging.getLogger(__name__)
+          
+          def _execute_single_google_search(query: str, max_results: int, search_type: str) -> list[dict]:
+              """(Internal Helper) Performs a single synchronous web or image search using Google."""
+              logger.info(f"Executing {search_type.upper()} search for query: '{query}'...")
+              try:
+                  service = build("customsearch", "v1", developerKey=settings.GOOGLE_API_KEY)
+                  
+                  # --- FIX: Build a params dictionary for the API call ---
+                  params = {
+                      "q": query,
+                      "cx": settings.GOOGLE_CSE_ID,
+                      "num": max_results
+                  }
+                  if search_type == 'image':
+                      params['searchType'] = 'image'
+                  
+                  # Execute the request with the correct parameters
+                  res = service.cse().list(**params).execute()
+                  # --- END OF FIX ---
+                  
+                  search_items = res.get("items", [])
+                  results = [
+                      {"title": item.get("title", "Untitled"), "href": item.get("link"), "mime": item.get("mime", "application/octet-stream")}
+                      for item in search_items if item.get("link")
+                  ]
+                  logger.info(f"Found {len(results)} {search_type} results for query: '{query}'")
+                  return results
+              except Exception as e:
+                  logger.error(f"An error occurred during {search_type} search for '{query}': {e}")
+                  return []
+          
+          async def perform_searches_and_get_hits(queries: list[str], executor: ThreadPoolExecutor, search_type: str = 'web') -> list[dict]:
+              """Asynchronously runs multiple Google searches and returns a de-duplicated list of hits."""
+              logger.info(f"\n--- Starting concurrent {search_type.upper()} search for {len(queries)} queries ---")
+              loop = asyncio.get_running_loop()
+              
+              max_results = settings.IMAGE_SEARCH_MAX_RESULTS_PER_QUERY if search_type == 'image' else settings.SEARCH_MAX_RESULTS_PER_QUERY
+              
+              search_tasks = [partial(_execute_single_google_search, query, max_results, search_type) for query in queries]
+              search_coroutines = [loop.run_in_executor(executor, task) for task in search_tasks]
+              list_of_hit_lists = await asyncio.gather(*search_coroutines)
+              
+              unique_hits = {hit['href']: hit for hit in itertools.chain.from_iterable(list_of_hit_lists)}
+              
+              final_hits = list(unique_hits.values())
+              logger.info(f"--- {search_type.upper()} search complete. Found {len(final_hits)} unique items in total. ---")
+              return final_hits
+        __init__.py
+
+      models/
+        __pycache__/
+        report_models.py
+          # src/deep_searcher/models/report_models.py
+          from pydantic import BaseModel, Field
+          from typing import List, Dict, Any, Optional
+          
+          # --- Agent & Chain I/O Models ---
+          
+          class GeneratedQueries(BaseModel):
+              """Pydantic model for the structured output of the SearchQueryGeneratorAgent."""
+              queries: List[str] = Field(description="A list of targeted search engine queries.")
+          
+          class SourceDocument(BaseModel):
+              """A single source document backing a research finding."""
+              source: str = Field(description="The URL of the source document.")
+              page_number: Optional[int] = Field(None, description="The page number, if applicable (for PDFs).")
+              content: str = Field(description="The verbatim quote or text chunk from the source.")
+          
+          class ResearchFinding(BaseModel):
+              """A single structured finding from the Research Agent, including its answer and supporting sources."""
+              question: str = Field(description="The specific research question that was investigated.")
+              answer: str = Field(description="A synthesized answer to the question based on the provided sources.")
+              source_documents: List[SourceDocument] = Field(description="A list of source documents that support the answer.")
+          
+          class ResearchFindings(BaseModel):
+              """The complete, structured output of the Research Agent."""
+              findings: List[ResearchFinding]
+          
+          
+          # --- API Request/Response Models ---
+          
+          class IngestionSummary(BaseModel):
+              message: str
+              processed_sources_count: int
+              total_hits_found: int
+              total_chunks_ingested: int
+              collections_created: List[str]
+              ingested_sources: List[str] = Field(description="A list of unique source URLs verified to be in the vector store.")
+          
+          class ReportSectionResult(BaseModel):
+              """The result of generating a single report section."""
+              section_topic: str
+              section_report: str
+              sources_used: List[str]
+          
+          class FullReport(BaseModel):
+              ingestion_summary: IngestionSummary
+              research_topic: str
+              final_report: str
+              sections_generated: List[ReportSectionResult] = Field(description="Detailed results for each generated section.")
+              sources_used: List[str] = Field(description="A de-duplicated list of all source URLs cited in the final report.")
+              intermediate_steps: Dict[str, Any] # Kept for debugging a single-topic run
+        __init__.py
+
+      utils/
+        __pycache__/
+        file_utils.py
+          # src/deep_searcher/utils/file_utils.py
+          from pathlib import Path
+          
+          def load_prompt(file_path: str) -> str:
+              """Loads a prompt from a file."""
+              try:
+                  with open(Path(file_path), "r", encoding="utf-8") as f:
+                      return f.read()
+              except FileNotFoundError:
+                  raise FileNotFoundError(f"Prompt file not found at: {file_path}")
+        sanitizers.py
+          # src/deep_searcher/utils/sanitizers.py
+          import re
+          import hashlib
+          
+          def sanitize_for_collection_name(name: str) -> str:
+              """
+              Sanitizes a string to be a valid ChromaDB collection name.
+          
+              ChromaDB collection names must:
+              - be between 3 and 63 characters long.
+              - start and end with an alphanumeric character.
+              - not contain two consecutive dots.
+              - only contain alphanumeric characters, underscores, and dots.
+          
+              Args:
+                  name: The input string (e.g., a brand name).
+          
+              Returns:
+                  A sanitized string that is a valid collection name.
+              """
+              if not isinstance(name, str) or not name:
+                  raise ValueError("Input name must be a non-empty string.")
+          
+              # Replace all non-alphanumeric characters (except dots) with an underscore
+              sanitized = re.sub(r'[^a-zA-Z0-9.]+', '_', name.lower())
+          
+              # Remove leading/trailing underscores or dots
+              sanitized = sanitized.strip('_.')
+          
+              # Replace consecutive dots with a single dot
+              sanitized = re.sub(r'\.\.+', '.', sanitized)
+          
+              # Truncate to a max length of 50 to leave room for prefixes/suffixes
+              sanitized = sanitized[:50]
+          
+              # Ensure the name is at least 3 characters long
+              if len(sanitized) < 3:
+                  # If too short, append a hash of the original name to ensure uniqueness and length
+                  hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
+                  sanitized = f"{sanitized}_{hash_suffix}"[:63] # Ensure it doesn't exceed max length
+          
+              # Final check for start/end characters
+              if not sanitized[0].isalnum():
+                  sanitized = 'c' + sanitized[1:]
+              if not sanitized[-1].isalnum():
+                  sanitized = sanitized[:-1] + 'c'
+          
+              return sanitized
+        source_extractor.py
+          import re
+          
+          def extract_sources_from_report(report_text: str) -> list[str]:
+              """Uses regex to find all unique source URLs cited in the report text."""
+              # Regex to find [Source: URL] or [Source: URL, Page: X]
+              # It captures the URL part.
+              pattern = r'\[Source:\s*(https?://[^\s,\]]+)'
+              matches = re.findall(pattern, report_text)
+              
+              # Return a de-duplicated list while preserving order
+              unique_sources = list(dict.fromkeys(matches))
+              return unique_sources
+        url_utils.py
+          # src/deep_searcher/utils/url_utils.py
+          import logging
+          import re
+          
+          logger = logging.getLogger(__name__)
+          
+          def normalize_url(url: str) -> str:
+              """
+              Cleans and normalizes a URL to fix common issues found during web crawling.
+              - Replaces all backslashes with forward slashes.
+              - Corrects malformed schemes like 'https:/www...' to 'https://www...'.
+          
+              Args:
+                  url: The raw URL string to be cleaned.
+          
+              Returns:
+                  A cleaned, more compliant URL string. Returns an empty string if input is invalid.
+              """
+              if not isinstance(url, str) or not url.strip():
+                  return ""
+          
+              original_url = url
+              
+              # 1. Replace all backslashes with forward slashes
+              cleaned_url = url.strip().replace('\\', '/')
+          
+              # 2. Fix incorrect scheme format (e.g., "https:/www.site.com" -> "https://www.site.com")
+              # This regex correctly inserts a second slash if it's missing after the protocol.
+              cleaned_url = re.sub(r'^(https?:)/([^/])', r'\1//\2', cleaned_url)
+          
+              if cleaned_url != original_url:
+                  logger.debug(f"Normalized URL: '{original_url}' -> '{cleaned_url}'")
+                  
+              return cleaned_url
+        __init__.py
+
+      vector_store/
+        __pycache__/
+        manager.py
+          # src/deep_searcher/vector_store/manager.py
+          import logging
+          from typing import List
+          
+          import chromadb
+          from langchain_chroma import Chroma
+          from langchain_openai import OpenAIEmbeddings
+          from langchain.schema.document import Document
+          from langchain_community.vectorstores.utils import filter_complex_metadata
+          from langchain.schema.retriever import BaseRetriever
+          from langchain.text_splitter import RecursiveCharacterTextSplitter
+          
+          from config.settings import settings
+          from src.deep_searcher.utils.sanitizers import sanitize_for_collection_name
+          
+          logger = logging.getLogger(__name__)
+          
+          class VectorStoreManager:
+              """Manages all interactions with the ChromaDB vector store."""
+          
+              def __init__(self):
+                  """Initializes the embedding model and the ChromaDB client."""
+                  self.embedding_function = OpenAIEmbeddings(
+                      model="text-embedding-3-small",
+                      openai_api_key=settings.OPENAI_API_KEY
+                  )
+                  self.client = chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIR)
+                  logger.info(f"VectorStoreManager initialized with ChromaDB client at '{settings.CHROMA_PERSIST_DIR}'")
+          
+              def get_sanitized_brand_name(self, brand: str) -> str:
+                  return sanitize_for_collection_name(brand)
+          
+              def get_collection_name(self, brand: str, collection_type: str) -> str:
+                  """
+                  Generates a sanitized and standardized collection name.
+                  e.g., get_collection_name('Coca-Cola', 'reports') -> 'coca_cola_reports'
+                  """
+                  sanitized_brand = self.get_sanitized_brand_name(brand)
+                  return f"{sanitized_brand}_{collection_type}"
+          
+              def reset_brand_collections(self, brand: str):
+                  sanitized_brand = self.get_sanitized_brand_name(brand)
+                  logger.warning(f"Resetting all collections for brand: '{brand}' (sanitized: '{sanitized_brand}')...")
+                  all_collections = self.client.list_collections()
+                  collections_to_delete = [c.name for c in all_collections if c.name.startswith(f"{sanitized_brand}_")]
+                  if not collections_to_delete:
+                      logger.info(f"No collections found for brand '{brand}' to delete.")
+                      return
+                  for collection_name in collections_to_delete:
+                      try:
+                          self.client.delete_collection(name=collection_name)
+                          logger.info(f"  - Successfully deleted collection: {collection_name}")
+                      except Exception as e:
+                          logger.error(f"  - Error deleting collection {collection_name}: {e}")
+          
+              def add_documents(self, collection_name: str, documents: List[Document]) -> int:
+                  """
+                  Chunks and adds LangChain Documents to a specific ChromaDB collection.
+                  Returns the number of chunks added.
+                  """
+                  if not documents:
+                      logger.warning(f"No documents provided to add to collection '{collection_name}'.")
+                      return 0
+          
+                  # Descriptions from images are usually short, but we split just in case.
+                  text_splitter = RecursiveCharacterTextSplitter(
+                      chunk_size=settings.CHUNK_SIZE,
+                      chunk_overlap=settings.CHUNK_OVERLAP,
+                  )
+                  chunked_docs = text_splitter.split_documents(documents)
+                  
+                  filtered_docs = filter_complex_metadata(chunked_docs)
+                  total_docs = len(filtered_docs)
+                  if total_docs == 0:
+                      logger.warning(f"No processable chunks were generated for collection '{collection_name}'.")
+                      return 0
+          
+                  logger.info(f"Adding {total_docs} document chunks to '{collection_name}' in batches of {settings.CHROMA_BATCH_SIZE}...")
+                  vector_store = Chroma(
+                      client=self.client,
+                      collection_name=collection_name,
+                      embedding_function=self.embedding_function
+                  )
+          
+                  num_batches = (total_docs + settings.CHROMA_BATCH_SIZE - 1) // settings.CHROMA_BATCH_SIZE
+                  for i in range(0, total_docs, settings.CHROMA_BATCH_SIZE):
+                      batch = filtered_docs[i:i + settings.CHROMA_BATCH_SIZE]
+                      try:
+                          vector_store.add_documents(batch)
+                          logger.debug(f"  - Ingested batch {i//settings.CHROMA_BATCH_SIZE + 1}/{num_batches}...")
+                      except Exception as e:
+                          logger.error(f"  - Failed to ingest batch {i//settings.CHROMA_BATCH_SIZE + 1}: {e}")
+                  
+                  logger.info(f"Successfully added {total_docs} chunks to collection '{collection_name}'.")
+                  return total_docs
+          
+              def get_collection_sources(self, collection_name: str) -> List[str]:
+                  logger.info(f"Verifying ingested sources for collection '{collection_name}'...")
+                  try:
+                      collection = self.client.get_collection(name=collection_name)
+                      results = collection.get(include=["metadatas"])
+                      metadatas = results.get("metadatas", [])
+                      if not metadatas:
+                          logger.warning(f"No metadata found in collection '{collection_name}'.")
+                          return []
+                      unique_sources = {meta['source'] for meta in metadatas if 'source' in meta}
+                      logger.info(f"Found {len(unique_sources)} unique sources in collection '{collection_name}'.")
+                      return sorted(list(unique_sources))
+                  except Exception as e:
+                      logger.error(f"Failed to retrieve sources from collection '{collection_name}': {e}")
+                      return []
+          
+              def create_retriever(self, brand: str, collection_type: str = "reports") -> BaseRetriever:
+                  collection_name = self.get_collection_name(brand, collection_type)
+                  if collection_type == "images":
+                      k = settings.IMAGE_RETRIEVER_TOP_K
+                  else:
+                      k = settings.RETRIEVER_TOP_K
+                  logger.info(f"Creating retriever with k={k} for collection: {collection_name}")
+                  try:
+                      # Check if collection exists to provide a better error message.
+                      self.client.get_collection(name=collection_name)
+                  except Exception:
+                      # Return a "dummy" retriever that returns no documents if the collection doesn't exist.
+                      # This prevents crashes if e.g., no images were found and ingested.
+                      logger.warning(f"Collection '{collection_name}' not found for brand '{brand}'. Retrieval for this type will yield no results.")
+                      store = Chroma(
+                          client=self.client,
+                          collection_name=f"{collection_name}_dummy_nonexistent", # Use a name that won't exist
+                          embedding_function=self.embedding_function,
+                      )
+                      return store.as_retriever(search_kwargs={"k": k})
+          
+                  store = Chroma(
+                      client=self.client,
+                      collection_name=collection_name,
+                      embedding_function=self.embedding_function,
+                  )
+                  return store.as_retriever(search_kwargs={"k": k})
+        __init__.py
+
+      __pycache__/
+      __init__.py
+
+  .env
+  .env.example
+    # .env
+    OPENAI_API_KEY="sk-..."
+    GOOGLE_API_KEY="AIza..."
+    GOOGLE_CSE_ID="..."
+  .gitattributes
+    # Auto detect text files and perform LF normalization
+    * text=auto
+
+  .gitignore
+    # Python-generated files
+    __pycache__/
+    *.py[oc]
+    build/
+    dist/
+    wheels/
+    *.egg-info
+    
+    # Virtual environments
+    .venv
+    
+    # Logs
+    logs/
+    
+    # Database
+    chroma_store/
+    
+    .env
+  .python-version
+    3.11
+
+  code.txt
+  LICENSE.txt
+  main.py
+    # main.py
+    import asyncio
+    import traceback
+    import logging
+    from concurrent.futures import ThreadPoolExecutor
+    from typing import List, Optional
+    from fastapi import FastAPI, HTTPException, Query
+    from langchain_core.runnables import RunnableConfig
+    
+    from config.logging_config import setup_logging
+    setup_logging()
+    
+    from config.settings import settings
+    from src.deep_searcher.agents.query_generator_agent import SearchQueryGeneratorAgent
+    from src.deep_searcher.vector_store.manager import VectorStoreManager
+    from src.deep_searcher.chains.report_chain import create_report_generation_chain
+    from src.deep_searcher.models.report_models import FullReport, IngestionSummary, ReportSectionResult
+    from src.deep_searcher.utils.source_extractor import extract_sources_from_report
+    from src.deep_searcher.data_pipeline import web_searcher, crawler, url_processor
+    
+    logger = logging.getLogger(__name__)
+    
+    # --- SINGLETON and LOCK SETUP ---
+    vsm = VectorStoreManager()
+    query_agent = SearchQueryGeneratorAgent()
+    api_lock = asyncio.Lock()
+    
+    app = FastAPI(
+        title="Deep Searcher API",
+        description="An API to perform multi-agent web research and generate a comprehensive report.",
+        version="1.5.1", # Version bump for bug fix
+    )
+    
+    async def _ingest_data_for_brand(brand: str, topic: str, vsm: VectorStoreManager) -> IngestionSummary:
+        # ... (this function is unchanged) ...
+        logger.info(f"--- Starting data ingestion for brand: '{brand}' on topic: '{topic}' ---")
+        
+        # --- TEXT INGESTION ---
+        logger.info("Step 1: Generating TEXT search queries...")
+        text_query_result = await query_agent.chain.ainvoke({
+            "brand": brand, "topic": topic, "num_queries": settings.SEARCH_QUERIES_TO_GENERATE, "search_type": "text"
+        })
+        text_queries = text_query_result.get('queries', [])
+        if not text_queries:
+            raise HTTPException(status_code=400, detail="Text query generation failed.")
+        logger.info(f"Generated {len(text_queries)} text queries.")
+    
+        with ThreadPoolExecutor() as executor:
+            logger.info("Step 2: Performing initial web search for TEXT...")
+            hits = await web_searcher.perform_searches_and_get_hits(queries=text_queries, executor=executor, search_type='web')
+        
+        logger.info("Step 3: Discovering more URLs via crawling...")
+        discovered_urls = await crawler.discover_urls_from_hits(hits)
+    
+        initial_urls = [hit['href'] for hit in hits if hit.get('href')]
+        all_text_urls = list(set(initial_urls + discovered_urls))
+        logger.info(f"Step 4: Combined text sources. Total unique URLs to process: {len(all_text_urls)}")
+    
+        logger.info("Step 5: Processing all TEXT URLs into documents...")
+        text_docs = await url_processor.process_urls(all_text_urls)
+        
+        sanitized_brand = vsm.get_sanitized_brand_name(brand)
+        reports_collection_name = vsm.get_collection_name(brand, "reports")
+        logger.info(f"Step 6: Ingesting TEXT documents into '{reports_collection_name}'...")
+        text_chunks_ingested = vsm.add_documents(reports_collection_name, text_docs)
+    
+        # --- IMAGE INGESTION ---
+        logger.info("\n--- Starting IMAGE ingestion pipeline ---")
+        logger.info("Step 1i: Generating IMAGE search queries...")
+        image_query_result = await query_agent.chain.ainvoke({
+            "brand": brand, "topic": topic, "num_queries": settings.IMAGE_SEARCH_QUERIES_TO_GENERATE, "search_type": "image"
+        })
+        image_queries = image_query_result.get('queries', [])
+        image_urls = []
+        if image_queries:
+            with ThreadPoolExecutor() as executor:
+                logger.info("Step 2i: Performing IMAGE search...")
+                image_hits = await web_searcher.perform_searches_and_get_hits(queries=image_queries, executor=executor, search_type='image')
+                image_urls = [hit['href'] for hit in image_hits if hit.get('href')]
+        
+        image_chunks_ingested = 0
+        if image_urls:
+            logger.info(f"Step 3i: Processing {len(image_urls)} image URLs into documents...")
+            image_docs = await url_processor.process_urls(image_urls)
+            
+            images_collection_name = vsm.get_collection_name(brand, "images")
+            logger.info(f"Step 4i: Ingesting IMAGE documents into '{images_collection_name}'...")
+            image_chunks_ingested = vsm.add_documents(images_collection_name, image_docs)
+        else:
+            logger.info("No images found or processed.")
+    
+        # --- FINAL SUMMARY ---
+        logger.info("\n--- Ingestion Verification ---")
+        verified_text_sources = vsm.get_collection_sources(reports_collection_name)
+        verified_image_sources = vsm.get_collection_sources(vsm.get_collection_name(brand, "images"))
+    
+        summary = IngestionSummary(
+            message=f"Ingestion complete for '{brand}'.",
+            processed_sources_count=len(all_text_urls) + len(image_urls),
+            total_hits_found=len(hits),
+            total_chunks_ingested=text_chunks_ingested + image_chunks_ingested,
+            collections_created=[name for name in [reports_collection_name, vsm.get_collection_name(brand, "images") if image_chunks_ingested > 0 else None] if name],
+            ingested_sources=sorted(list(set(verified_text_sources + verified_image_sources)))
+        )
+        logger.info(f"--- Ingestion Summary: {summary.message} ---")
+        return summary
+    
+    
+    @app.post("/generate-report", response_model=FullReport)
+    async def generate_full_report(
+        brand: str = Query(..., description="The brand name to research (e.g., 'Singtel')."),
+        topic: str = Query(..., description="The main research topic (e.g., 'Analysis of ESG initiatives')."),
+        sections: Optional[List[str]] = Query(None, description="Optional list of specific sections to generate for the report (e.g., ['Environmental Policies', 'Social Initiatives']).")
+    ):
+        """
+        Generates a full research report, now including relevant images.
+        """
+        if api_lock.locked():
+            raise HTTPException(status_code=429, detail="A report generation process is already running.")
+    
+        async with api_lock:
+            try:
+                vsm.reset_brand_collections(brand)
+                ingestion_summary = await _ingest_data_for_brand(brand, topic, vsm)
+    
+                report_chain = create_report_generation_chain(brand, vsm)
+                generated_sections: List[ReportSectionResult] = []
+                final_report_text = ""
+                intermediate_steps = {}
+    
+                if sections and len(sections) > 0:
+                    max_concurrency = settings.REPORT_GENERATION_MAX_CONCURRENCY
+                    logger.info(f"--- Starting PARALLEL report generation for {len(sections)} sections (max concurrency: {max_concurrency}) ---")
+                    
+                    section_inputs = [
+                        {"brand": brand, "topic": f"{section_name} for {brand}"}
+                        for section_name in sections
+                    ]
+                    config = RunnableConfig(max_concurrency=max_concurrency)
+                    section_results = await report_chain.abatch(section_inputs, config=config)
+                    
+                    full_report_parts = [f"# {topic} for {brand}\n"]
+                    for section_name, result in zip(sections, section_results):
+                        section_report = result.get("final_report", f"Failed to generate report for section: {section_name}")
+                        full_report_parts.append(f"## {section_name}\n\n{section_report}")
+                        
+                        generated_sections.append(ReportSectionResult(
+                            section_topic=result.get("topic", section_name),
+                            section_report=section_report,
+                            sources_used=extract_sources_from_report(section_report)
+                        ))
+                        
+                        intermediate_steps[section_name] = {
+                            "research_findings": result.get("research_findings_formatted", ""),
+                            "draft_report": result.get("draft_report", ""),
+                            "critique": result.get("critique", ""),
+                            "image_url_selected_for_report": result.get("image_url", ""),
+                            "image_urls_retrieved": result.get("retrieved_image_urls", [])
+                        }
+    
+                    final_report_text = "\n\n".join(full_report_parts)
+                    logger.info("--- Parallel report generation complete. ---")
+    
+                else:
+                    logger.info("--- Starting single-topic report generation ---")
+                    result = await report_chain.ainvoke({"brand": brand, "topic": topic})
+                    final_report_text = result.get("final_report", "Report generation failed.")
+                    intermediate_steps = {
+                        "research_findings": result.get("research_findings_formatted", ""),
+                        "draft_report": result.get("draft_report", ""),
+                        "critique": result.get("critique", ""),
+                        "image_url": result.get("image_url", "")
+                    }
+    
+                all_sources = extract_sources_from_report(final_report_text)
+    
+                return FullReport(
+                    ingestion_summary=ingestion_summary,
+                    research_topic=topic,
+                    final_report=final_report_text,
+                    sections_generated=generated_sections,
+                    sources_used=all_sources,
+                    intermediate_steps=intermediate_steps
+                )
+            except Exception as e:
+                logger.error(f"An unexpected error occurred in generate_full_report: {e}")
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+    
+    
+    if __name__ == "__main__":
+        import uvicorn
+        print("Starting FastAPI server...")
+        uvicorn.run(app, host="0.0.0.0", port=1234)
+  map_directory.sh
+  pyproject.toml
+  README.md
+    # Deep-Agentic-Analyser
+    
+    The Deep-Agentic-Analyser is an advanced, multi-agent autonomous research system designed to perform in-depth corporate analysis on any given topic. By leveraging a series of specialized AI agents, it automates the entire research lifecycle: from intelligent query generation and comprehensive web crawling to data processing, synthesis, and the final generation of a structured, well-cited report.
+    
+    This system goes beyond simple web searches by incorporating both **textual analysis** and **visual analysis**, processing web pages, PDFs, and images to build a rich, multi-modal understanding of the research subject. The final output is a professional report delivered via a clean RESTful API.
+    
+    ## Key Features
+    
+    -   **Multi-Agent System:** Utilizes a team of specialized AI agents (Query Generator, Research, Report, Critique) for a robust, divide-and-conquer approach.
+    -   **Advanced Search & Discovery:**
+        -   Generates dynamic, context-aware Google search queries using advanced dorking techniques.
+        -   Performs both web and image searches to gather diverse data types.
+        -   Employs a sophisticated crawling pipeline using **Playwright** and **Crawl4AI** to discover relevant content beyond initial search hits.
+    -   **Multi-Modal Data Processing:**
+        -   Processes HTML, PDFs, and images (`.jpg`, `.png`, `.webp`, etc.).
+        -   Uses the powerful **`unstructured.io`** library with model-based strategies (`hi_res`) to partition documents and extract text from images using OCR.
+    -   **Vector-Based Storage & Retrieval:**
+        -   Embeds and stores processed data chunks in a persistent **ChromaDB** vector store.
+        -   Maintains separate, organized collections for text documents and images.
+    -   **Iterative Report Generation:**
+        -   A **Research Agent** synthesizes initial findings from the vector store.
+        -   A **Report Agent** writes a polished draft, incorporating a relevant image.
+        -   A **Critique Agent** reviews the draft and provides actionable feedback.
+        -   The **Report Agent** produces a final, revised report based on the critique.
+    -   **RESTful API:** Exposes its functionality through a clean, well-documented API built with **FastAPI**.
+    
+    ## System Architecture
+    
+    The application operates in two main phases: the **Data Ingestion Pipeline** and the **Report Generation Chain**. The entire process is orchestrated by the main FastAPI application.
+    
+    ```mermaid
+    graph TD
+        subgraph "User Interaction"
+            U[User] -- "POST /generate-report\n(brand, topic, sections)" --> F[FastAPI App]
+        end
+    
+        subgraph "Data Ingestion Pipeline (orchestrated by _ingest_data_for_brand)"
+            F --> QG_Text["1a. Generate Text Queries"]
+            QG_Text --> WS_Text["2a. Web Search"]
+            WS_Text --> C["3a. Crawl & Discover URLs"]
+            C --> PU_Text["4a. Process Text/PDFs"]
+            PU_Text --> VSM_Text["5a. Ingest into 'reports' collection"]
+            
+            VSM_Text --> QG_Img["1b. Generate Image Queries"]
+            QG_Img --> WS_Img["2b. Image Search"]
+            WS_Img --> PU_Img["3b. Process Images w/ OCR"]
+            PU_Img --> VSM_Img["4b. Ingest into 'images' collection"]
+        end
+    
+        subgraph "Report Generation Chain"
+            VSM_Text --> RGC["Create Report Chain"]
+            VSM_Img --> RGC
+    
+            RGC --> RA["Research Agent"]
+            RGC --> IR["Image Retriever"]
+            RA & IR --> DRAFT["Generate Draft Report"]
+            DRAFT --> CA["Critique Agent"]
+            CA & DRAFT --> FINAL["Generate Final Report"]
+        end
+    
+        FINAL --> F
+        F -- "JSON Response with Report & Sources" --> U
+    
+        style U fill:#d4edda,stroke:#155724,stroke-width:2px
+        style F fill:#cce5ff,stroke:#004085,stroke-width:2px
+    ```
+    
+    ## Tech Stack
+    
+    -   **Orchestration & Framework:** FastAPI, LangChain (LCEL)
+    -   **Large Language Models:** OpenAI (`gpt-4.5-preview`)
+    -   **Data Ingestion & Processing:**
+        -   **Search:** Google Custom Search API (`google-api-python-client`)
+        -   **Crawling:** Playwright, Crawl4AI
+        -   **Document Parsing:** `unstructured[local-inference]`
+    -   **Vector Storage & Embeddings:**
+        -   **Database:** ChromaDB (Persistent)
+        -   **Embeddings:** OpenAI (`text-embedding-3-small`)
+    -   **Package Management:** `uv`
+    
+    ## Setup and Installation Guide
+    
+    Follow these steps carefully to set up and run the project locally.
+    
+    ### Prerequisites
+    
+    -   **Python:** Version 3.11 or higher.
+    -   **uv:** A fast Python package installer. If you don't have it, install it with `pip install uv`.
+    -   **Git:** For cloning the repository.
+    
+    ### Step 1: Clone the Repository
+    
+    ```sh
+    git clone https://github.com/Rah-Rah-Mitra/Deep-Agentic-Analyser.git
+    cd Deep-Agentic-Analyser
+    ```
+    
+    ### Step 2: Install Tesseract OCR Engine
+    
+    This is a **critical dependency** for the `unstructured` library to process images.
+    
+    #### For Windows:
+    
+    1.  Go to the official Tesseract builds for Windows: [**https://github.com/UB-Mannheim/tesseract/wiki**](https://github.com/UB-Mannheim/tesseract/wiki).
+    2.  Download the recommended 64-bit installer (e.g., `tesseract-ocr-w64-setup-vX.X.X.exe`).
+    3.  Run the installer. During installation, ensure you check the box for **"Add Tesseract to system PATH"**.
+    4.  After installation, **open a new terminal** and verify the installation by running:
+        ```sh
+        tesseract --version
+        ```
+        You should see the version number printed without any errors.
+    
+    #### For macOS:
+    
+    Use Homebrew to install Tesseract:
+    ```sh
+    brew install tesseract
+    ```
+    
+    #### For Linux (Debian/Ubuntu):
+    
+    Use apt to install Tesseract:
+    ```sh
+    sudo apt update
+    sudo apt install tesseract-ocr
+    ```
+    
+    ### Step 3: Set Up the Python Environment
+    
+    This project uses `uv` for fast dependency management.
+    
+    ```sh
+    # Create a virtual environment
+    python -m venv .venv
+    
+    # Activate the virtual environment
+    # On Windows:
+    .venv\Scripts\activate
+    # On macOS/Linux:
+    source .venv/bin/activate
+    
+    # Install all required packages using uv
+    uv pip install -r requirements.txt
+    ```
+    This will install all necessary libraries, including FastAPI, LangChain, ChromaDB, and the CPU-based inference models for `unstructured`.
+    
+    ### Step 4: Configure Environment Variables
+    
+    You need to provide API keys for the services used by the application.
+    
+    1.  **Create a `.env` file** by copying the example file:
+        ```sh
+        # On Windows
+        copy .env.example .env
+    
+        # On macOS/Linux
+        cp .env.example .env
+        ```
+    
+    2.  **Edit the `.env` file** and add your secret keys:
+        ```env
+        # .env
+        OPENAI_API_KEY="sk-..."
+        GOOGLE_API_KEY="AIza..."
+        GOOGLE_CSE_ID="..."
+        ```
+    
+        -   **`OPENAI_API_KEY`**: Your API key from [OpenAI](https://platform.openai.com/api-keys).
+        -   **`GOOGLE_API_KEY`**: Your API key from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Ensure the "Custom Search API" is enabled for your project.
+        -   **`GOOGLE_CSE_ID`**: Your Custom Search Engine ID.
+            1.  Go to the [Programmable Search Engine](https://programmablesearchengine.google.com/controlpanel/all) control panel.
+            2.  Create a new search engine.
+            3.  In the setup options, enable **"Search the entire web"**.
+            4.  Copy the "Search engine ID" and paste it here.
+    
+    ## How to Run the Application
+    
+    With the environment set up and activated, start the API server:
+    
+    ```sh
+    uv run main.py
+    ```
+    
+    The server will start, and you can access the API documentation.
+    
+    -   **Swagger UI (Interactive Docs):** [http://127.0.0.1:1234/docs](http://127.0.0.1:1234/docs)
+    -   **Redoc (Alternative Docs):** [http://127.0.0.1:1234/redoc](http://127.0.0.1:1234/redoc)
+    
+    ## API Usage
+    
+    The primary endpoint is `/generate-report`. You can use the Swagger UI to test it or send a `POST` request using a tool like `curl`.
+    
+    ### Example `curl` Request
+    
+    ```sh
+    curl -X 'POST' \
+      'http://127.0.0.1:1234/generate-report?brand=NVIDIA&topic=Analysis%20of%20AI%20chip%20market%20dominance' \
+      -H 'accept: application/json' \
+      -d ''
+    ```
+    This will kick off the full research and report generation process. The initial request will take some time to complete as it involves extensive data gathering and processing.
+    
+    ## Project Structure
+    
+    ```
+    ./
+    ├── config/               # Project configuration (settings, logging)
+    ├── logs/                 # Log files generated during runtime
+    ├── prompts/              # System prompts for each AI agent
+    ├── src/
+    │   └── deep_searcher/
+    │       ├── agents/       # Logic for individual AI agents
+    │       ├── chains/       # LangChain Expression Language (LCEL) chains
+    │       ├── data_pipeline/ # Modules for search, crawling, and processing
+    │       ├── models/       # Pydantic models for data structures
+    │       ├── utils/        # Helper functions and utilities
+    │       └── vector_store/ # Management of the ChromaDB vector store
+    ├── .env.example          # Example environment file
+    ├── main.py               # FastAPI application entry point
+    └── requirements.txt      # Python dependencies
+    ```
+  requirements.txt
+  uv.lock
