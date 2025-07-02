@@ -4,6 +4,22 @@ An advanced, multi-agent autonomous system designed to generate comprehensive an
 
 This system goes beyond simple question generation by incorporating a sophisticated Retrieval-Augmented Generation (RAG) pipeline, processing web pages, PDFs, and images to build a rich, multi-modal understanding of the subject matter. The entire process is exposed via a streaming RESTful API and consumed by a modern, responsive frontend.
 
+## To-Do
+
+### BoB Integration (Under Development)
+
+The integration with **BoB** for organization verification and document approval is currently under construction.
+
+- [ ] Implement BoB request verification flow
+- [ ] Integrate BoB approval response with frontend
+- [ ] Secure API endpoints for BoB organization access
+- [ ] Finalize exam committee workflow for BoB-authorized schools
+
+#### System Architecture (BoB Integration Pending)
+
+![BoB Integration Pending - System Architecture](assets\system-workflow-diagram.png)
+*Figure: Current project architecture with BoB integration marked as pending*
+
 ## Key Features
 
 -   **Dual Generation Modes:**
@@ -253,10 +269,6 @@ The application will be available at **[http://localhost:5173](http://localhost:
     ├── package.json        # Frontend dependencies and scripts
     └── vite.config.ts      # Vite build configuration
 ```
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE.txt](LICENSE.txt) file for details.
 
 ---
 
