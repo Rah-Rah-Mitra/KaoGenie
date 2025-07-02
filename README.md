@@ -1,7 +1,3 @@
-Of course. Here is the complete, final `README.md` that incorporates the `setup.sh` script, updates the ports, and adds a "Usage" section for a comprehensive developer experience.
-
----
-
 # SmartExam
 
 An advanced, multi-agent autonomous system designed to generate comprehensive and customized exams from high-level topics or user-provided documents. By leveraging a series of specialized AI agents, it automates the entire exam creation lifecycle: from intelligent query generation and web crawling for source material to data processing, question generation, solving, and final compilation into polished exam and answer key documents.
