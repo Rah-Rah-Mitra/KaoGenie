@@ -120,8 +120,8 @@ For macOS, Linux, and **Windows users with a bash shell (like Git Bash or WSL)**
 
 1.  **Clone the Repository:**
     ```sh
-    git clone <your-repo-url>
-    cd <your-repo-directory>
+    git clone https://github.com/Rah-Rah-Mitra/SmartExam.git
+    cd SmartExam
     ```
 
 2.  **Make the script executable:**
