@@ -1,4 +1,4 @@
-# SmartExam
+# KaoGenie
 
 An advanced, multi-agent autonomous system designed to generate comprehensive and customized exams from high-level topics or user-provided documents. By leveraging a series of specialized AI agents, it automates the entire exam creation lifecycle: from intelligent query generation and web crawling for source material to data processing, question generation, solving, and final compilation into polished exam and answer key documents.
 
@@ -106,7 +106,7 @@ graph TD
 | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **Backend**               | Python 3.11, FastAPI, LangChain (LCEL), Uvicorn                                                               |
 | **Package Management**    | `uv` (for both environment and packages)                                                                      |
-| **LLMs & Embeddings**     | OpenAI (GPT-4 series, `text-embedding-3-small`), DeepSeek (optional)                                          |
+| **LLMs & Embeddings**     | Gemini (Gemini Embeddings), DeepSeek (optional)                                          |
 | **Data Ingestion**        | `google-api-python-client` (for Search), `unstructured.io` (for parsing), `aiohttp` (for crawling)              |
 | **System Dependencies**   | **Tesseract OCR Engine**                                                                                      |
 | **Vector DB**             | ChromaDB (Persistent)                                                                                         |
