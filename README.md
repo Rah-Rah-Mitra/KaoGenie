@@ -4,21 +4,9 @@ An advanced, multi-agent autonomous system designed to generate comprehensive an
 
 This system goes beyond simple question generation by incorporating a sophisticated Retrieval-Augmented Generation (RAG) pipeline, processing web pages, PDFs, and images to build a rich, multi-modal understanding of the subject matter. The entire process is exposed via a streaming RESTful API and consumed by a modern, responsive frontend.
 
-## To-Do
+## System Architecture 
+![BoB Integration Pending - System Architecture](assets/techstack_diagram.png)
 
-### BoB Integration (Under Development)
-
-The integration with **BoB** for organization verification and document approval is currently under construction.
-
-- [ ] Implement BoB request verification flow
-- [ ] Integrate BoB approval response with frontend
-- [ ] Secure API endpoints for BoB organization access
-- [ ] Finalize exam committee workflow for BoB-authorized schools
-
-#### System Architecture (BoB Integration Pending)
-
-![BoB Integration Pending - System Architecture](assets/system-workflow-diagram.png)
-*Figure: Current project architecture with BoB integration marked as pending*
 
 ## Key Features
 
