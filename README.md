@@ -124,8 +124,8 @@ For macOS, Linux, and **Windows users with a bash shell (like Git Bash or WSL)**
 
 1.  **Clone the Repository:**
     ```sh
-    git clone https://github.com/Rah-Rah-Mitra/SmartExam.git
-    cd SmartExam
+    git clone https://github.com/Rah-Rah-Mitra/KaoGenie.git
+    cd KaoGenie
     ```
 
 2.  **Make the script executable:**
